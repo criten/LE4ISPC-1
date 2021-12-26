@@ -30,7 +30,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 # Version 1.0
-# Available from https://github.com/criten/le4ispc/
+# Available from https://github.com/criten/le4ispconfig/
 
 while getopts ":hv" arg;
 do
