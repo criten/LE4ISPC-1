@@ -1,4 +1,4 @@
-# le4ispc
+# le4ispconfig
 Lets Encrypt for ISP Config
 
 This was based on code by Hj Ahmad Rasyid Hj Ismail at https://github.com/ahrasis/LE4ISPC
