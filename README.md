@@ -13,7 +13,7 @@ Main differences with my version
  
  To install execute:
  ```
- wget -O /etc/ssl/le4ispc.sh https://raw.githubusercontent.com/criten/le4ispc/main/le4ispc.sh
+ wget -O /etc/ssl/le4ispc.sh https://raw.githubusercontent.com/criten/le4ispconfig/main/le4ispc.sh
  chmod +x /etc/ssl/le4ispc.sh
  /etc/ssl/le4ispc.sh
  ```
