@@ -29,8 +29,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
-# Version 1.0
-# Available from https://github.com/criten/le4ispconfig/
+# Version 1.1
+# Available from https://github.com/criten/le4ispconfig
+
+# Variables
+ispccrt=/usr/local/ispconfig/interface/ssl/ispserver.crt
+ispckey=/usr/local/ispconfig/interface/ssl/ispserver.key
+ispcpem=/usr/local/ispconfig/interface/ssl/ispserver.pem
+ispcacme=/usr/local/ispconfig/interface/acme/.well-known/acme-challenge
+# Postfix
+pfcrt=/etc/postfix/smtpd.cert
+pfkey=/etc/postfix/smtpd.key
+# MariaDB
+mcrt=/etc/my.cnf.d/server-cert.pem
+mkey=/etc/my.cnf.d/server-key.pem
+# Pure-FTPD
+ftpdpem=/etc/ssl/private/pure-ftpd.pem
 
 while getopts ":hv" arg;
 do
@@ -67,68 +81,69 @@ if [[ $(host `hostname -f`. | grep "not found" | wc -l) -eq "1" ]]; then
 	exit 1
 fi
 
-# Populate SSL filename path
+# Populate SSL filename path and other vars
 lelive=/etc/letsencrypt/live/$(hostname -f)
 if [[ -e "$lelive" ]]; then
 	mkdir -p "$lelive"
 fi
 
+# Function to setup certificates and permissions
+# File permissions on the private key are particularly important - lets be as restrictive as possible!
+resetpermissions() {
+	# ISPConfig
+	cp $lelive/fullchain.pem $ispccrt
+	cp $lelive/privkey.pem $ispckey
+	cat $ispckey $ispccrt > $ispcpem
+	chown root:root $ispccrt $ipsckey $ispcpem
+	chmod 600 $ispccrt $ipsckey $ispcpem
+
+	# Postfix
+	cp $ispccrt $pfcrt
+	cp $ispckey $pfkey
+	chown postfix:postfix $pfcrt $pfkey
+	chmod 600 $pfcrt $pfkey
+
+	# MariaDB
+	cp $ispccrt $mcrt
+	cp $ispckey $mkey
+	chown mysql:mysql $mcrt $mkey
+	chmod 600 $mcrt $mkey
+
+	# Pure-FTPD
+	cp $ispcpem $ftpdpem
+	chown root:root $ftpdpem
+	chmod 600 $ftpdpem
+}
+
 # Lets run if theres 30 days or less on the certifice validity
 if [[ ! -e ${lelive}/cert.pem ]] || [[ $(date +%Y%m%d) -ge $(date --date="$(openssl x509 -noout -text -in ${lelive}/cert.pem | grep "Not After : " | tr -s ' ' | cut -c 14-) -30 day" +%Y%m%d) ]]; then
 	if [[ $(systemctl status nginx 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "0" ]] && [[ $(systemctl status httpd 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "0" ]]; then
 		websvr=0
-		certbot certonly --authenticator standalone -d $(hostname -f)
+		certbot certonly --standalone -d $(hostname -f)
 	else
 		if [[ $(systemctl status nginx 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
 			websvr=nginx
 		else
 			websvr=httpd
 		fi
-		certbot certonly --authenticator standalone -d $(hostname -f) --pre-hook "systemctl stop $websvr" --post-hook "systemctl start $websvr"
+		#certbot certonly --authenticator standalone -d $(hostname -f) --pre-hook "systemctl stop $websvr" --post-hook "systemctl start $websvr" # The following command is untested
+		certbot certonly --webroot $ispcacme -d $(hostname -f)
 	fi
 
 	# Proceed if 'hostname -f' LE SSL certs path exists
 	if [[ ! -d "$lelive" ]]; then
-		echo "ERROR: ${lelive} does not exist. Did letsencrypt fail?"
+		echo "ERROR: ${lelive} does not exist. Did cerbot fail?"
 		exit 1
 	else
-		ispcbak=/usr/local/ispconfig/interface/ssl/ispserver.*.bak
-		ispccrt=/usr/local/ispconfig/interface/ssl/ispserver.crt
-		ispckey=/usr/local/ispconfig/interface/ssl/ispserver.key
-		ispcpem=/usr/local/ispconfig/interface/ssl/ispserver.pem
+		resetpermissions
 
-		# Delete old then backup existing ispserver ssl files
-		if ls $ispcbak 1> /dev/null 2>&1; then rm $ispcbak; fi
-		if [[ -e "$ispccrt" ]]; then mv $ispccrt $ispccrt-$(date +"%y%m%d%H%M%S").bak; fi
-		if [[ -e "$ispckey" ]]; then mv $ispckey $ispckey-$(date +"%y%m%d%H%M%S").bak; fi
-		if [[ -e "$ispcpem" ]]; then mv $ispcpem $ispcpem-$(date +"%y%m%d%H%M%S").bak; fi
-
-		# Create symlink to LE fullchain and key for ISPConfig
-		ln -s $lelive/fullchain.pem $ispccrt
-		ln -s $lelive/privkey.pem $ispckey
-
-		# Build ispserver.pem file and chmod it
-		cat $ispckey $ispccrt > $ispcpem
-		chmod 600 $ispcpem
-
-		# Reload webserver if enabled
+		# Reload webserver if enabled - but don't restart because that invokes an outage
 		if [[ ${websvr} -ne "0" ]]; then
 			systemctl reload $websvr
 		fi
 		
 		# Postfix
 		if [[ $(systemctl status postfix 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
-			pfbak=/etc/postfix/smtpd.*.bak
-			pfcrt=/etc/postfix/smtpd.cert
-			pfkey=/etc/postfix/smtpd.key
-			if ls $pfbak 1> /dev/null 2>&1; then rm $pfbak; fi
-			if [[ -e "$pfcrt" ]]; then mv $pfcrt $pfcrt-$(date +"%y%m%d%H%M%S").bak; fi
-			if [[ -e "$pfkey" ]]; then mv $pfkey $pfkey-$(date +"%y%m%d%H%M%S").bak; fi
-
-			# Create symlink from ISPConfig
-			ln -s $ispccrt $pfcrt
-			ln -s $ispckey $pfkey
-			
 			# Reload postfix and dovecot
 			systemctl reload postfix
 			if [[ $(systemctl status dovecot 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
@@ -136,49 +151,28 @@ if [[ ! -e ${lelive}/cert.pem ]] || [[ $(date +%Y%m%d) -ge $(date --date="$(open
 			fi
 		fi
 		
-		# MariaDB
+		# MariaDB - no reload option so lets restart. Active connections interrupted
 		if [[ $(systemctl status mariadb 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
-			mbak=/etc/my.cnf.d/server-*.pem-*.bak
-			mcrt=/etc/my.cnf.d/server-cert.pem
-			mkey=/etc/my.cnf.d/server-key.pem
-			mcnf=/etc/my.cnf.d/my.cnf
-			if ls $mbak 1> /dev/null 2>&1; then rm $mbak; fi
-			if [[ -e "$mcrt" ]]; then mv $mcrt $mcrt-$(date +"%y%m%d%H%M%S").bak; fi
-			if [[ -e "$mkey" ]]; then mv $mkey $mkey-$(date +"%y%m%d%H%M%S").bak; fi
-		
-			# Copy from ISPConfig, add settings in /etc/mysql/my.cnf and restart mysql
-			ln -s $ispccrt $mcrt
-			ln -s $ispckey $mkey
 			systemctl restart mariadb
 		fi
 
-		# Pure-FTPD & Monit
-		if [[ $(systemctl status pure-ftpd 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]] || [[ $(systemctl status monit 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
-			pte=/etc/ssl/private
-			ftpdpem=$pte/pure-ftpd.pem
-			if [[ ! -d "$pte" ]]; then mkdir $pte; fi
-			if ls $ftpdpem-*.bak 1> /dev/null 2>&1; then rm $ftpdpem-*.bak; fi
-			if [[ -e "$ftpdpem" ]]; then mv $ftpdpem $ftpdpem-$(date +"%y%m%d%H%M%S").bak; fi
-			
-			# Create symlink from ISPConfig, chmod, then restart it
-			ln -sf $ispcpem $ftpdpem
-			chmod 600 $ftpdpem
-
-			# Restart pure-ftpd
-			if [[ $(systemctl status pure-ftpd 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
-				systemctl restart pure-ftpd
-			fi
+		# Pure-FTPD - no reload option so lets restart. Active connections interrupted
+		if [[ $(systemctl status pure-ftpd 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
+			systemctl restart pure-ftpd
+		fi
 		
-			# Restart monit
-			if [[ $(systemctl status monit 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
-				systemctl restart monit
-			fi
+		# Monit - no reload option so lets restart. Active connections interrupted 
+		if [[ $(systemctl status monit 2>/dev/null | grep "   Active: active (running)" | wc -l) -eq "1" ]]; then
+			systemctl restart monit
 		fi
 	fi
+else
+	# Reset permissions on each daily run but don't restart services as this invokes an outage
+	resetpermissions
 fi
 
 # Install a crontab
-if [[ $(grep `dirname $0` /etc/crontab | wc -l) -eq "0" ]]; then
+if [[ $(grep $0 /etc/crontab | wc -l) -eq "0" ]]; then
         echo "45 3 * * * root $0" >>/etc/crontab
 fi
 # EOF
