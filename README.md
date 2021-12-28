@@ -17,5 +17,5 @@ Main differences with my version
  ```
  wget -O /etc/ssl/le4ispconfig.sh https://raw.githubusercontent.com/criten/le4ispconfig/main/le4ispconfig.sh
  chmod +x /etc/ssl/le4ispconfig.sh
- /etc/ssl/le4ispc.sh
+ /etc/ssl/le4ispconfig.sh
  ```
