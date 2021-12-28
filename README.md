@@ -10,6 +10,8 @@ Main differences with my version
  * Validation against `hostname -f` - lets not poll Lets Encrypt unless your hostname is configured correctly
  * Overly complex crontab installer was replaced with 3 lines of code
  * Checks certificate expiry date and will only run 30 days or less from the expiry date
+ * Use certbot --webroot if the httpd service is active, instead of bringing it down
+ * Setup file permissions for the best possible security - to attempt to limit the possibility of reading the private key
  
  To install execute:
  ```
